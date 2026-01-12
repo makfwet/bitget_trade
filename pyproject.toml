@@ -1,0 +1,11 @@
+[project]
+name = "bitget-trade"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "aiohttp>=3.13.3",
+    "loguru>=0.7.3",
+    "websockets>=16.0",
+]
