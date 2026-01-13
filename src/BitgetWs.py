@@ -12,40 +12,41 @@ from config import (
     PING_INTERVAL,
     BITGET_API_KEY,
     BITGET_API_PASSPHRASE,
+    TRADE_USDT,
+    RECONNECT_INTERVAL,
 )
-from utils.instruments import generate_sign
 from utils.BitgetSymbolCache import BitgetSymbolCache
+from utils.instruments import generate_sign, calc_qty, generate_order_id
 
 
 class BitgetWS:
     ws: ClientConnection | None = None
     ws_connected: bool = False
     ws_ping_task: asyncio.Task | None = None
-    symbol_cache: BitgetSymbolCache | None = None
+    symbol_cache: BitgetSymbolCache = BitgetSymbolCache()
+    update_cache_task: asyncio.Task | None = None
 
 
-    def __init__(self) -> None:
-        self.symbol_cache = BitgetSymbolCache()
-
-
-    async def connect(self) -> bool:
+    async def _connect(self) -> bool:
         """ Метод для установки websocket-соединения с Bitget """
         FUNC_NAME = "CONNECT"
 
         try:
             self.ws = await connect(WS_BASE_URL, ping_interval=None)
         except Exception as e:
-            logger.error(f"[{FUNC_NAME}] Ошибка подключения: {e}")
-            return False
+             logger.error(f"[{FUNC_NAME}] Ошибка подключения: {e}")
+             return False
 
         res = await self._login()
         if res == "Success":
             pass
         elif res == "ConnectionClosedError":
             logger.error(f"[{FUNC_NAME}] Ошибка подключения: неудачный логин")
+            self.ws, self.ws_connected = None, False
             return False
         else:
             logger.error(f"[{FUNC_NAME}] Ошибка подключения: {res}")
+            self.ws, self.ws_connected = None, False
             return False
 
         self.ws_connected = True
@@ -94,11 +95,11 @@ class BitgetWS:
                 logger.debug(f"[{FUNC_NAME}] Пинг-понг, задержка {pong_latency:.2f}с")
 
             except ConnectionClosedError:
-                self.ws_connected = False
+                self.ws, self.ws_connected = None, False
                 logger.warning(f"[{FUNC_NAME}] Соединение потеряно")
 
             except Exception as e:
-                self.ws_connected = False
+                self.ws, self.ws_connected = None, False
                 logger.error(f"[{FUNC_NAME}] Ошибка: {e}")
 
 
@@ -110,10 +111,13 @@ class BitgetWS:
             logger.warning(f"[{FUNC_NAME}] Соединение потеряно")
             return
 
-        await self.ws.send(dumps(payload))
+        try:
+            await self.ws.send(dumps(payload))
+        except Exception as e:
+            logger.error(f"[{FUNC_NAME}] Неизвестная ошибка при отправке сообщения: {e}")
 
 
-    async def listen(self) -> None:
+    async def _listen(self) -> None:
         """ Метод для прослушки входящих сообщений от Bitget """
         FUNC_NAME = "LISTEN"
 
@@ -129,7 +133,41 @@ class BitgetWS:
                 logger.info(f"[{FUNC_NAME}] {msg}")
 
 
-    async def create_order(
+    async def prepare_to_trade(
+        self,
+        data_to_trade: tuple[Literal["Buy", "Sell"], set[str]]
+    ) -> tuple[list[str], list[str]]:
+        """
+        Подготовка тасков для торговли.
+        Возвращает пустой кортеж при успешном создании всех торговых тасок,
+        при отсутствии токена в кэше вернет +1 символ в списке unlisted_symbols,
+        при вычисленном qty ниже qty из кэша вернет +1 символ и микро лог в списке impossible_qty_symbols
+        """
+
+        side, symbols = data_to_trade
+        tasks = []
+        unlisted_symbols = []
+        impossible_qty_symbols = []
+
+        for symbol in symbols:
+            if not (data := await self.symbol_cache.get_from_cache(symbol)):
+                unlisted_symbols.append(symbol)
+                continue
+
+            qty = calc_qty(TRADE_USDT, data.price, data.qty_step)
+
+            if qty < data.min_qty:
+                impossible_qty_symbols.append((symbol, f'{qty}<{data.min_qty}'))
+                continue
+
+            tasks.append(self._create_order(symbol, side, qty))
+
+        if tasks:
+            await asyncio.gather(*tasks)
+        return unlisted_symbols, impossible_qty_symbols
+
+
+    async def _create_order(
         self,
         symbol: str,
         side: Literal["Buy", "Sell"],
@@ -150,15 +188,15 @@ class BitgetWS:
         msg = {
             "args":[{
                 "channel": "place-order",
-                "id": "xxxxx-xxx-xxx-xxxx-xxxxxx",
+                "id": generate_order_id(),
                 "instId": symbol,
                 "instType": "USDT-FUTURES",
                 "params": {
                     "orderType": "market",
-                    "side": side,
+                    "side": side.lower(),
                     "size": "2",
                     "marginCoin": "USDT",
-                    "force": "gtc",
+                    "force": "ioc",
                     "marginMode": "crossed",
                 }
             }],
@@ -169,19 +207,35 @@ class BitgetWS:
         logger.info(f"[{FUNC_NAME}] Отправил ордер: {msg}")
 
 
+    async def test_task(self, time: int) -> None:
+        """
+        ТЕСТОВЫЙ МЕТОД!
+        Метод для имитации поступления данных для трейда от парсера.
+        Запускается один раз через time секунд
+        """
+
+        await asyncio.sleep(time)
+        print(await self.prepare_to_trade(('Buy', {'NIGHTUSDT'})))
+
+
     async def start_bitget(self) -> None:
         """ Метод для начала установки соединения с Bitget. Точка входа """
         FUNC_NAME = "START_BITGET"
 
         while True:
-            if not await self.connect():
-                logger.warning(f"[{FUNC_NAME}] Соединение разорвано или не было установлено! Повтор через 5 сек...")
-                await asyncio.sleep(5)
+            if not await self._connect():
+                if self.update_cache_task:
+                    self.update_cache_task.cancel()
+
+                logger.warning(f"[{FUNC_NAME}] Соединение разорвано или не было установлено! Повтор через {RECONNECT_INTERVAL} сек...")
+                await asyncio.sleep(RECONNECT_INTERVAL)
                 continue
 
-            await self.listen()
+            self.update_cache_task = asyncio.create_task(self.symbol_cache.update_scheduler())
+            await self._listen()
 
 
     def __del__(self) -> None:
-        del self.symbol_cache
+        if self.update_cache_task:
+            self.update_cache_task.cancel()
         logger.debug("[DELETE] Объект торгового bitget-сокета удалён")
