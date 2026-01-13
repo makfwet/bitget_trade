@@ -9,37 +9,24 @@ from utils.BitgetSymbolCache.CachedSymbol import CachedSymbol
 
 
 class BitgetSymbolCache:
-    """
-    Кеш для Bitget USDT-FUTURES.
-
-    Использование:
-        * cache = BitgetSymbolCache()
-        * await cache.update_cache()
-        * asyncio.create_task(cache.scheduler())
-    """
     symbol_cache: dict[CachedSymbol] = {}
-    update_task: asyncio.Task | None = None
     last_update: float | None = None
     __symbol_lock: asyncio.Lock = asyncio.Lock()
 
 
-    def __init__(self) -> None:
-        update_task = asyncio.create_task(self.update_scheduler())
-
-
     async def update_scheduler(self, update_interval: int = CACHE_UPDATE_INTERVAL) -> None:
-        """ Метод таска для обновления кэша раз в update_interval секунд """
-        await self.update_cache()
+        """ Метод для постоянного обновления кеша с котировками """
+        await self._update_cache()
         while True:
             await asyncio.sleep(update_interval)
-            await self.update_cache()
+            await self._update_cache()
 
 
-    async def update_cache(self) -> None:
+    async def _update_cache(self) -> None:
         """ Метод для обновления кэша """
         FUNC_NAME = "UPDATE_CACHE"
 
-        logger.info(f"[{FUNC_NAME}] Обновление символов Bitget...")
+        logger.debug(f"[{FUNC_NAME}] Обновление символов Bitget...")
 
         try:
             async with ClientSession(base_url=API_BASE_URL) as session:
@@ -81,7 +68,7 @@ class BitgetSymbolCache:
         async with self.__symbol_lock:
             self.symbol_cache = cache
             self.last_update = time()
-        logger.success(f"[{FUNC_NAME}] Кеш обновлён: {len(self.symbol_cache)} символов")
+        logger.success(f"[{FUNC_NAME}] Кэш обновлён: {len(self.symbol_cache)} символов")
 
 
     async def _fetch_instruments(self, session: ClientSession) -> list[dict[str, ...] | None]:
