@@ -1,5 +1,11 @@
-from loguru import logger
+from os import getenv
+from pathlib import Path
 
+from loguru import logger
+from dotenv import load_dotenv
+
+
+load_dotenv(Path(__file__).parent / '.env')
 
 logger.add(
     "logs/parsing_logs.log",
@@ -9,12 +15,14 @@ logger.add(
     enqueue=True,
 )
 
-WS_BASE_URL = "wss://ws.bitget.com/v2/ws/private"
-API_BASE_URL = "https://api.bitget.com"
+TRADE_USDT = 10
 
+RECONNECT_INTERVAL = 5
 PING_INTERVAL = 30
 CACHE_UPDATE_INTERVAL = 5
 
-BITGET_API_KEY = ""
-BITGET_API_SECRET = ""
-BITGET_API_PASSPHRASE = ""
+WS_BASE_URL = "wss://ws.bitget.com/v2/ws/private"
+API_BASE_URL = "https://api.bitget.com"
+BITGET_API_KEY = getenv("BITGET_API_KEY")
+BITGET_API_SECRET = getenv("BITGET_API_SECRET")
+BITGET_API_PASSPHRASE = getenv("BITGET_API_PASSPHRASE")
