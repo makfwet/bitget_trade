@@ -1,7 +1,6 @@
 import asyncio
 
 from config import logger
-from utils.BitgetSymbolCache.BitgetSymbolCache import BitgetSymbolCache
 from src.BitgetWs import BitgetWS
 
 
@@ -12,18 +11,13 @@ async def main():
         logger.debug(f"[{FUNC_NAME}] Запускаю скрипт из цикла")
 
         try:
-            await BitgetWS().start_bitget()
+            bitget_client = BitgetWS()
+            asyncio.create_task(bitget_client.test_task(5))
+            await bitget_client.start_bitget()
 
         except Exception as e:
             logger.critical(f"[{FUNC_NAME}] Неизвестная ошибка - {e}")
 
 
-
-    #
-    # trader = BitgetTrader(cache)
-    #
-    # await trader.open_position("ZKPUSDT", "buy", 50)
-    #
-    # await asyncio.Event().wait()
-
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
