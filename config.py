@@ -19,7 +19,7 @@ TRADE_USDT = 10
 
 RECONNECT_INTERVAL = 5
 PING_INTERVAL = 30
-CACHE_UPDATE_INTERVAL = 5
+CACHE_UPDATE_INTERVAL = 86400
 
 WS_BASE_URL = "wss://ws.bitget.com/v2/ws/private"
 API_BASE_URL = "https://api.bitget.com"
