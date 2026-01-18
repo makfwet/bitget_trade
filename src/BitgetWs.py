@@ -194,7 +194,7 @@ class BitgetWS:
                 "params": {
                     "orderType": "market",
                     "side": side.lower(),
-                    "size": "2",
+                    "size": qty,
                     "marginCoin": "USDT",
                     "force": "ioc",
                     "marginMode": "crossed",
